@@ -5,6 +5,7 @@ export interface Child {
   grade: number;
   className: string;
   boardUrl: string;
+  postUrl?: string;  // 최신 게시물 직접 URL (선택 — 자동 탐지 실패 시 사용)
   color: string; // UI color theme per child
 }
 

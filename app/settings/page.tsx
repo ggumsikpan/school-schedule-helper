@@ -11,6 +11,7 @@ const EMPTY_CHILD: Omit<Child, 'id' | 'color'> = {
   grade: 1,
   className: '',
   boardUrl: '',
+  postUrl: '',
 };
 
 export default function SettingsPage() {
@@ -31,7 +32,7 @@ export default function SettingsPage() {
 
   function openEdit(child: Child) {
     setEditing(child);
-    setForm({ name: child.name, school: child.school, grade: child.grade, className: child.className, boardUrl: child.boardUrl });
+    setForm({ name: child.name, school: child.school, grade: child.grade, className: child.className, boardUrl: child.boardUrl, postUrl: child.postUrl ?? '' });
     setShowForm(true);
   }
 
@@ -198,7 +199,25 @@ export default function SettingsPage() {
                   placeholder="https://school.kr/board/..."
                   className="w-full border border-gray-300 rounded-xl px-3 py-2.5 text-sm outline-none focus:border-amber-400"
                 />
-                <p className="text-xs text-gray-400 mt-1">학교 홈페이지 &gt; 학급게시판 &gt; 주간학습안내 페이지 주소</p>
+                <p className="text-xs text-gray-400 mt-1">학교 홈페이지 → 학급 → 주간학습안내 <b>목록</b> 페이지 주소</p>
+              </div>
+
+              <div>
+                <label className="text-sm text-gray-600 font-medium block mb-1">
+                  최신 게시물 URL
+                  <span className="ml-1 text-amber-500 font-bold text-xs">★ 이미지가 안 뜰 때 이걸 쓰세요</span>
+                </label>
+                <input
+                  type="url"
+                  value={form.postUrl ?? ''}
+                  onChange={e => setForm(f => ({ ...f, postUrl: e.target.value }))}
+                  placeholder="https://school.kr/board/view?id=..."
+                  className="w-full border border-amber-200 rounded-xl px-3 py-2.5 text-sm outline-none focus:border-amber-400 bg-amber-50"
+                />
+                <p className="text-xs text-gray-400 mt-1">
+                  학교 홈페이지에서 이번 주 주간학습안내 게시물을 직접 열고, 그 URL을 붙여넣으세요.<br/>
+                  매주 새 게시물이 올라오면 여기를 업데이트하면 돼요.
+                </p>
               </div>
 
               <div className="flex gap-2 pt-2">

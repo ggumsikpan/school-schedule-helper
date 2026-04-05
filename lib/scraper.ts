@@ -14,13 +14,21 @@ export interface ScrapeResult {
   imageUrls: string[];
 }
 
-export async function scrapeSchedule(url: string): Promise<ScrapeResult> {
-  const html = await fetchWithProxy(url);
+export async function scrapeSchedule(boardUrl: string, postUrl?: string): Promise<ScrapeResult> {
+  // 직접 게시물 URL이 있으면 바로 그 페이지에서 추출
+  if (postUrl?.trim()) {
+    const html = await fetchWithProxy(postUrl);
+    const doc = parseHtml(html);
+    removeNoise(doc);
+    return extract(doc, postUrl);
+  }
+
+  // 게시판 목록 페이지에서 최신 게시물 자동 탐지
+  const html = await fetchWithProxy(boardUrl);
   const doc = parseHtml(html);
   removeNoise(doc);
 
-  // 게시판 목록이면 최신 게시물 링크 따라가기
-  const latestLink = findLatestPostLink(doc, url);
+  const latestLink = findLatestPostLink(doc, boardUrl);
   if (latestLink) {
     try {
       const postHtml = await fetchWithProxy(latestLink);
@@ -31,7 +39,7 @@ export async function scrapeSchedule(url: string): Promise<ScrapeResult> {
     } catch { /* 실패 시 현재 페이지로 진행 */ }
   }
 
-  return extract(doc, url);
+  return extract(doc, boardUrl);
 }
 
 function parseHtml(html: string): Document {
@@ -147,17 +155,34 @@ function findLatestPostLink(doc: Document, baseUrl: string): string | null {
   for (const sel of selectors) {
     const el = doc.querySelector(sel);
     const href = el?.getAttribute('href');
-    if (href) return resolveUrl(href, baseUrl);
+    if (href && !isJsHref(href)) return resolveUrl(href, baseUrl);
   }
-  // 주간학습안내 키워드로 링크 찾기
+
+  // 주간학습안내 키워드로 href 링크 찾기
   for (const a of Array.from(doc.querySelectorAll('a'))) {
     const text = a.textContent ?? '';
     const href = a.getAttribute('href');
-    if (href && ['주간학습', '주간안내', '학습안내'].some(kw => text.includes(kw))) {
+    if (href && !isJsHref(href) && ['주간학습', '주간안내', '학습안내'].some(kw => text.includes(kw))) {
       return resolveUrl(href, baseUrl);
     }
   }
+
+  // onclick 기반 한국 학교 CMS 대응 (JavaScript 네비게이션)
+  for (const a of Array.from(doc.querySelectorAll('a[onclick], td[onclick]'))) {
+    const onclick = a.getAttribute('onclick') ?? '';
+    // location.href = '...' 패턴
+    const locMatch = onclick.match(/location\.href\s*=\s*['"]([^'"]+)['"]/);
+    if (locMatch && !isJsHref(locMatch[1])) return resolveUrl(locMatch[1], baseUrl);
+    // window.open('...') 패턴
+    const winMatch = onclick.match(/window\.open\s*\(\s*['"]([^'"]+)['"]/);
+    if (winMatch && !isJsHref(winMatch[1])) return resolveUrl(winMatch[1], baseUrl);
+  }
+
   return null;
+}
+
+function isJsHref(href: string): boolean {
+  return href === '#' || href.startsWith('javascript:') || href === '';
 }
 
 async function fetchWithProxy(url: string): Promise<string> {

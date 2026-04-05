@@ -52,7 +52,7 @@ export default function DashboardPage() {
     setLoading(prev => ({ ...prev, [child.id]: true }));
     try {
       // 브라우저에서 직접 스크래핑 + 파싱 (서버 불필요)
-      const scrapeResult = await scrapeSchedule(child.boardUrl);
+      const scrapeResult = await scrapeSchedule(child.boardUrl, child.postUrl);
       const schedule = parseSchedule(scrapeResult, child.id);
       saveSchedule(schedule);
       setSchedules(prev => ({ ...prev, [child.id]: schedule }));
