@@ -17,21 +17,51 @@ export async function POST(req: NextRequest) {
     if (!boardUrl) return NextResponse.json({ error: 'boardUrl이 필요합니다.' }, { status: 400 });
     if (!process.env.ANTHROPIC_API_KEY) return NextResponse.json({ error: 'ANTHROPIC_API_KEY가 설정되지 않았습니다.' }, { status: 500 });
 
-    // 1. 게시판 목록 페이지 가져오기
+    // 1. 게시판 목록 페이지 가져오기 (AJAX JSON 먼저 시도)
     debug.push(`[1] 게시판 fetch: ${boardUrl}`);
+    const ajaxPostUrl = await tryAjaxBoardList(boardUrl, debug);
+    if (ajaxPostUrl) {
+      debug.push(`[1] AJAX로 게시물 URL 획득: ${ajaxPostUrl}`);
+      const postHtmlDirect = await fetchHtml(ajaxPostUrl);
+      const $direct = load(postHtmlDirect);
+      const imageUrlsDirect = extractImageUrls($direct, ajaxPostUrl);
+      const tableTextDirect = extractTableText($direct);
+      const bodyTextDirect = extractBodyText($direct);
+      debug.push(`[direct] 이미지 ${imageUrlsDirect.length}개 / 표텍스트 ${tableTextDirect.length}자`);
+      const client2 = new Anthropic();
+      let schedule2: WeeklySchedule;
+      if (imageUrlsDirect.length > 0) {
+        const r = await tryVisionAnalysis(client2, imageUrlsDirect, childId, grade, className);
+        schedule2 = r ? { ...r, sourceUrl: ajaxPostUrl, imageUrls: imageUrlsDirect } : await textAnalysis(client2, tableTextDirect || bodyTextDirect, childId, grade, className);
+        if (!r) { schedule2.sourceUrl = ajaxPostUrl; schedule2.imageUrls = imageUrlsDirect; }
+      } else {
+        schedule2 = await textAnalysis(client2, tableTextDirect || bodyTextDirect, childId, grade, className);
+        schedule2.sourceUrl = ajaxPostUrl;
+      }
+      return NextResponse.json({ ...schedule2, debug });
+    }
     const boardHtml = await fetchHtml(boardUrl);
     debug.push(`[1] 완료 (${boardHtml.length}자)`);
     const $ = load(boardHtml);
 
-    // 2. 페이지 내 링크 샘플 (디버그)
-    const sampleLinks = $('a[href]').toArray()
-      .map(el => $(el).attr('href') ?? '')
-      .filter(h => h.length > 5 && !h.startsWith('#') && !h.startsWith('javascript'))
-      .slice(0, 15);
-    debug.push(`[2] 페이지 링크 샘플: ${sampleLinks.join(' | ')}`);
+    // 2. 스크립트 안에서 boardSeq / AJAX URL 탐지
+    const scriptContent = $('script').toArray()
+      .map(el => $(el).html() ?? '')
+      .join('\n');
+    // boardSeq 숫자 후보
+    const seqMatches = [...scriptContent.matchAll(/boardSeq[='":\s]+(\d{5,})/gi)].map(m => m[1]);
+    // fn_egov / getBoardList 같은 AJAX 패턴
+    const ajaxMatches = [...scriptContent.matchAll(/['"]([^'"]*getBoardList[^'"]*|[^'"]*boardCnts[^'"]*\.do[^'"]*)['"]/gi)].map(m => m[1]).slice(0, 5);
+    debug.push(`[2] 스크립트 boardSeq 후보: ${seqMatches.slice(0, 5).join(', ') || '없음'}`);
+    debug.push(`[2] 스크립트 AJAX URL 후보: ${ajaxMatches.join(' | ') || '없음'}`);
+    // HTML 전체에서 view.do 링크 탐색
+    const viewLinks = (boardHtml.match(/\/boardCnts\/view\.do[^"'\s]*/g) ?? []).slice(0, 5);
+    debug.push(`[2] HTML 내 view.do 링크: ${viewLinks.join(' | ') || '없음'}`);
 
     // 2. 이번 주 주간학습안내 게시물 링크 찾기
-    const postUrl = findThisWeekPostUrl($, boardUrl) ?? findLatestPostUrl($, boardUrl);
+    // HTML raw에서 view.do 링크 직접 추출 (cheerio가 못 찾는 경우 대비)
+    const rawViewUrl = viewLinks[0] ? resolveUrl(viewLinks[0], boardUrl) : null;
+    const postUrl = findThisWeekPostUrl($, boardUrl) ?? findLatestPostUrl($, boardUrl) ?? rawViewUrl;
     debug.push(`[2] 게시물 URL: ${postUrl ?? '(탐지 실패 — 게시판 페이지로 진행)'}`);
     const targetUrl = postUrl ?? boardUrl;
 
@@ -364,4 +394,49 @@ function isJsHref(href: string): boolean {
 
 function resolveUrl(href: string, base: string): string {
   try { return new URL(href, base).toString(); } catch { return href; }
+}
+
+// ────────────────────────────────────────────
+// AJAX/JSON API로 게시물 목록 조회 시도
+// (JavaScript 렌더링 CMS 대응)
+// ────────────────────────────────────────────
+async function tryAjaxBoardList(boardUrl: string, debug: string[]): Promise<string | null> {
+  try {
+    const u = new URL(boardUrl);
+    const boardID = u.searchParams.get('boardID');
+    if (!boardID) return null;
+
+    // icees.kr / ice.go.kr 계열 CMS: JSON API 시도
+    const base = `${u.origin}${u.pathname.replace('list.do', '')}`;
+    const jsonUrl = `${base}list.do?boardID=${boardID}&s=${u.searchParams.get('s') ?? ''}&pageIndex=1`;
+    const res = await fetch(jsonUrl, {
+      headers: {
+        'User-Agent': 'Mozilla/5.0',
+        'Accept': 'application/json, text/javascript, */*',
+        'X-Requested-With': 'XMLHttpRequest',
+        'Referer': boardUrl,
+      },
+      signal: AbortSignal.timeout(10000),
+    });
+    const text = await res.text();
+    debug.push(`[ajax] 응답 타입: ${res.headers.get('content-type')} (${text.length}자)`);
+    debug.push(`[ajax] 응답 앞부분: ${text.slice(0, 200)}`);
+
+    // JSON 응답이면 boardSeq 추출
+    if (text.trim().startsWith('{') || text.trim().startsWith('[')) {
+      const json = JSON.parse(text);
+      const items = json?.resultList ?? json?.list ?? json?.data ?? (Array.isArray(json) ? json : null);
+      if (items?.length > 0) {
+        const seq = items[0]?.boardSeq ?? items[0]?.nttId ?? items[0]?.seq;
+        if (seq) {
+          const viewUrl = `${u.origin}/boardCnts/view.do?boardID=${boardID}&boardSeq=${seq}&m=${u.searchParams.get('m') ?? ''}&s=${u.searchParams.get('s') ?? ''}`;
+          debug.push(`[ajax] boardSeq ${seq} 발견 → ${viewUrl}`);
+          return viewUrl;
+        }
+      }
+    }
+  } catch (e) {
+    debug.push(`[ajax] 실패: ${e instanceof Error ? e.message : e}`);
+  }
+  return null;
 }
