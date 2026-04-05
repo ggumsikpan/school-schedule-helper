@@ -287,7 +287,7 @@ function extractBodyText($: CheerioRoot): string {
 }
 
 // ────────────────────────────────────────────
-// Claude Vision 분석
+// Claude Vision 분석 (모든 이미지를 한 번에 전송)
 // ────────────────────────────────────────────
 async function tryVisionAnalysis(
   client: Anthropic,
@@ -296,33 +296,41 @@ async function tryVisionAnalysis(
   grade: number,
   className: string,
 ): Promise<WeeklySchedule | null> {
-  for (const url of imageUrls.slice(0, 3)) {
+  // 이미지 최대 4개 다운로드
+  type ImgPart = { type: 'image'; source: { type: 'base64'; media_type: 'image/jpeg' | 'image/png' | 'image/gif' | 'image/webp'; data: string } };
+  const imgParts: ImgPart[] = [];
+
+  for (const url of imageUrls.slice(0, 4)) {
     try {
       const res = await fetch(url, { signal: AbortSignal.timeout(10000) });
       if (!res.ok) continue;
       const buffer = await res.arrayBuffer();
-      const contentType = res.headers.get('content-type') ?? 'image/jpeg';
-      const mimeType = contentType.split(';')[0].trim() as 'image/jpeg' | 'image/png' | 'image/gif' | 'image/webp';
-      const base64 = Buffer.from(buffer).toString('base64');
-
-      const message = await client.messages.create({
-        model: 'claude-haiku-4-5-20251001',
-        max_tokens: 1500,
-        messages: [{
-          role: 'user',
-          content: [
-            { type: 'image', source: { type: 'base64', media_type: mimeType, data: base64 } },
-            { type: 'text', text: buildPrompt(grade, className) },
-          ],
-        }],
-      });
-
-      const text = message.content[0].type === 'text' ? message.content[0].text : '';
-      const schedule = parseClaudeResponse(text, childId);
-      if (schedule) return schedule;
+      const ct = res.headers.get('content-type') ?? 'image/jpeg';
+      const mimeType = ct.split(';')[0].trim() as ImgPart['source']['media_type'];
+      imgParts.push({ type: 'image', source: { type: 'base64', media_type: mimeType, data: Buffer.from(buffer).toString('base64') } });
     } catch { continue; }
   }
-  return null;
+
+  if (imgParts.length === 0) return null;
+
+  try {
+    const message = await client.messages.create({
+      model: 'claude-haiku-4-5-20251001',
+      max_tokens: 2000,
+      messages: [{
+        role: 'user',
+        content: [
+          ...imgParts,
+          { type: 'text', text: buildPrompt(grade, className, imgParts.length) },
+        ],
+      }],
+    });
+
+    const text = message.content[0].type === 'text' ? message.content[0].text : '';
+    return parseClaudeResponse(text, childId);
+  } catch {
+    return null;
+  }
 }
 
 // ────────────────────────────────────────────
@@ -351,12 +359,24 @@ async function textAnalysis(
 // ────────────────────────────────────────────
 // Claude 프롬프트
 // ────────────────────────────────────────────
-function buildPrompt(grade: number, className: string): string {
-  return `이 주간학습안내에서 ${grade}학년 ${className}반의 이번 주 시간표를 추출해주세요.
+function buildPrompt(grade: number, className: string, imageCount = 1): string {
+  const multiImageGuide = imageCount > 1
+    ? `
+이미지가 ${imageCount}장 첨부되어 있습니다. 다음 두 종류의 문서가 포함되어 있을 수 있습니다:
+1. **학급별 시간표**: ${grade}학년 각 반의 요일별 교과 배열 (어느 요일에 체육/과학/실과 등이 있는지)
+2. **주간학습안내**: 이번 주 각 교과에서 배울 내용, 준비물, 알림사항
+
+두 이미지를 함께 분석하여:
+- 시간표에서 → ${grade}학년 ${className}반의 요일별 수업 추출
+- 주간학습안내에서 → 각 교과의 준비물·알림 추출
+- 조합하여 → 요일별 준비물 완성
+` : '';
+
+  return `${multiImageGuide}${grade}학년 ${className}반의 이번 주 시간표와 준비물을 분석해주세요.
 
 다음 JSON 형식으로만 응답하세요 (다른 텍스트 없이):
 {
-  "week": "주차 텍스트 (예: 4/7~4/11)",
+  "week": "주차 텍스트 (예: 4/6~4/10)",
   "days": {
     "월": { "subjects": ["국어", "수학"], "items": ["준비물"], "notes": "" },
     "화": { "subjects": [...], "items": [...], "notes": "" },
@@ -367,10 +387,10 @@ function buildPrompt(grade: number, className: string): string {
 }
 
 규칙:
-- subjects: 교시 순서대로 과목명 배열 (체육이면 "체육" 포함)
-- items: 해당 날 챙길 준비물 (체육 수업 있으면 반드시 "체육복"과 "운동화" 포함)
-- notes: 현장학습·행사 등 특이사항 (없으면 빈 문자열 "")
-- 해당 학년/반이 없으면 전체 시간표 기반으로 최대한 추출`;
+- subjects: 교시 순서대로 과목명 배열
+- items: 해당 날 챙길 준비물 (체육 있으면 반드시 "체육복", "운동화" 포함 / 실과·과학 실험이면 해당 준비물 포함)
+- notes: 현장학습·행사·특별 알림 (없으면 "")
+- ${className}반 데이터가 명확히 보이면 그 데이터 사용, 아니면 최대한 추출`;
 }
 
 // ────────────────────────────────────────────
