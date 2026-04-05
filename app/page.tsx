@@ -45,7 +45,20 @@ export default function DashboardPage() {
         }),
       });
       const data = await res.json();
-      if (!res.ok) throw new Error(data.error ?? '서버 오류');
+      if (!res.ok) {
+        // debug 정보를 에러 스케줄에 보존
+        const errorSchedule: WeeklySchedule = {
+          childId: child.id,
+          week: '오류',
+          fetchedAt: new Date().toISOString(),
+          days: Object.fromEntries(DAYS.map(d => [d, { hasPE: false, subjects: [], items: [], notes: '' }])) as unknown as WeeklySchedule['days'],
+          error: data.error ?? '서버 오류',
+          ...(data.debug ? { debug: data.debug } : {}),
+        };
+        saveSchedule(errorSchedule);
+        setSchedules(prev => ({ ...prev, [child.id]: errorSchedule }));
+        return;
+      }
       saveSchedule(data);
       setSchedules(prev => ({ ...prev, [child.id]: data }));
     } catch (err) {

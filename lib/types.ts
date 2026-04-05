@@ -22,9 +22,10 @@ export interface WeeklySchedule {
   week: string;
   fetchedAt: string;
   days: Record<DayKey, DaySchedule>;
-  sourceUrl?: string;   // 원본 게시물 URL (바로가기용)
-  imageUrls?: string[]; // 원본 이미지 URL 목록
+  sourceUrl?: string;
+  imageUrls?: string[];
   error?: string;
+  debug?: string[];     // 개발용 진단 로그
 }
 
 export const DAYS: DayKey[] = ['월', '화', '수', '목', '금'];

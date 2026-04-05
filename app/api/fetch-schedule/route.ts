@@ -54,8 +54,8 @@ export async function POST(req: NextRequest) {
     const ajaxMatches = [...scriptContent.matchAll(/['"]([^'"]*getBoardList[^'"]*|[^'"]*boardCnts[^'"]*\.do[^'"]*)['"]/gi)].map(m => m[1]).slice(0, 5);
     debug.push(`[2] 스크립트 boardSeq 후보: ${seqMatches.slice(0, 5).join(', ') || '없음'}`);
     debug.push(`[2] 스크립트 AJAX URL 후보: ${ajaxMatches.join(' | ') || '없음'}`);
-    // HTML 전체에서 view.do 링크 탐색
-    const viewLinks = (boardHtml.match(/\/boardCnts\/view\.do[^"'\s]*/g) ?? []).slice(0, 5);
+    // HTML 전체에서 view.do 링크 탐색 (boardSeq=숫자 있는 것만)
+    const viewLinks = (boardHtml.match(/\/boardCnts\/view\.do\?[^"'\s]*boardSeq=\d+[^"'\s]*/g) ?? []).slice(0, 5);
     debug.push(`[2] HTML 내 view.do 링크: ${viewLinks.join(' | ') || '없음'}`);
 
     // 2. 이번 주 주간학습안내 게시물 링크 찾기
