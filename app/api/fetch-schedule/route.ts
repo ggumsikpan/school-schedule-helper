@@ -11,54 +11,67 @@ const PE_KEYWORDS = ['체육', '체조', '스포츠', '수영'];
 // 메인 핸들러
 // ────────────────────────────────────────────
 export async function POST(req: NextRequest) {
+  const debug: string[] = [];
   try {
     const { boardUrl, childId, grade, className } = await req.json();
     if (!boardUrl) return NextResponse.json({ error: 'boardUrl이 필요합니다.' }, { status: 400 });
     if (!process.env.ANTHROPIC_API_KEY) return NextResponse.json({ error: 'ANTHROPIC_API_KEY가 설정되지 않았습니다.' }, { status: 500 });
 
     // 1. 게시판 목록 페이지 가져오기
+    debug.push(`[1] 게시판 fetch: ${boardUrl}`);
     const boardHtml = await fetchHtml(boardUrl);
+    debug.push(`[1] 완료 (${boardHtml.length}자)`);
     const $ = load(boardHtml);
 
     // 2. 이번 주 주간학습안내 게시물 링크 찾기
     const postUrl = findThisWeekPostUrl($, boardUrl) ?? findLatestPostUrl($, boardUrl);
+    debug.push(`[2] 게시물 URL: ${postUrl ?? '(탐지 실패 — 게시판 페이지로 진행)'}`);
     const targetUrl = postUrl ?? boardUrl;
 
     // 3. 게시물 페이지 가져오기
     const postHtml = postUrl ? await fetchHtml(postUrl) : boardHtml;
     const $post = load(postHtml);
+    debug.push(`[3] 게시물 HTML (${postHtml.length}자)`);
 
-    // 4. 콘텐츠 추출 (이미지 우선, 텍스트 fallback)
+    // 4. 콘텐츠 추출
     const imageUrls = extractImageUrls($post, targetUrl);
     const tableText = extractTableText($post);
     const bodyText = extractBodyText($post);
+    debug.push(`[4] 이미지 ${imageUrls.length}개 / 표텍스트 ${tableText.length}자 / 본문 ${bodyText.length}자`);
+    debug.push(`[4] 이미지 URLs: ${imageUrls.slice(0, 3).join(', ') || '없음'}`);
 
     // 5. Claude로 분석
     const client = new Anthropic();
     let schedule: WeeklySchedule;
 
     if (imageUrls.length > 0) {
-      // 이미지를 서버에서 다운로드 후 Vision 분석
+      debug.push('[5] Claude Vision 분석 시작');
       const imageResult = await tryVisionAnalysis(client, imageUrls, childId, grade, className);
       if (imageResult) {
+        debug.push('[5] Vision 분석 성공');
         schedule = { ...imageResult, sourceUrl: targetUrl, imageUrls };
       } else {
-        // Vision 실패 시 텍스트로 fallback
+        debug.push('[5] Vision 실패 → 텍스트 분석 fallback');
         schedule = await textAnalysis(client, tableText || bodyText, childId, grade, className);
         schedule.sourceUrl = targetUrl;
         schedule.imageUrls = imageUrls;
       }
     } else if (tableText || bodyText) {
+      debug.push('[5] Claude 텍스트 분석 시작');
       schedule = await textAnalysis(client, tableText || bodyText, childId, grade, className);
       schedule.sourceUrl = targetUrl;
+      debug.push('[5] 텍스트 분석 완료');
     } else {
-      return NextResponse.json({ error: '게시물에서 시간표를 찾을 수 없습니다. URL을 확인해주세요.' }, { status: 422 });
+      return NextResponse.json({
+        error: '게시물에서 시간표를 찾을 수 없습니다.',
+        debug,
+      }, { status: 422 });
     }
 
-    return NextResponse.json(schedule);
+    return NextResponse.json({ ...schedule, debug });
   } catch (err) {
     const msg = err instanceof Error ? err.message : '알 수 없는 오류';
-    return NextResponse.json({ error: msg }, { status: 500 });
+    return NextResponse.json({ error: msg, debug }, { status: 500 });
   }
 }
 

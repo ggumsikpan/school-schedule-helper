@@ -156,7 +156,10 @@ export default function ChildCard({ child, schedule, targetDay, colorIndex, onRe
       {schedule?.error && (
         <div className="mx-4 mb-3 bg-red-50 border border-red-200 rounded-xl px-3 py-2 text-sm">
           <p className="font-medium text-red-600 mb-0.5">불러오기 실패</p>
-          <p className="text-xs text-red-400">{schedule.error}</p>
+          <p className="text-xs text-red-400 mb-1">{schedule.error}</p>
+          {(schedule as WeeklySchedule & { debug?: string[] }).debug?.map((line, i) => (
+            <p key={i} className="text-xs text-gray-400 font-mono">{line}</p>
+          ))}
         </div>
       )}
 
