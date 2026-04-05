@@ -5,6 +5,7 @@ export interface Child {
   grade: number;
   className: string;
   boardUrl: string;
+  postUrl?: string;  // 이번 주 게시물 직접 URL (입력 시 우선 사용)
   color: string;
 }
 

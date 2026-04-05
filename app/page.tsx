@@ -39,6 +39,7 @@ export default function DashboardPage() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           boardUrl: child.boardUrl,
+          postUrl: child.postUrl,
           childId: child.id,
           grade: child.grade,
           className: child.className,

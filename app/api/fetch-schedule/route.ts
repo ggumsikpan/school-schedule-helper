@@ -13,9 +13,32 @@ const PE_KEYWORDS = ['체육', '체조', '스포츠', '수영'];
 export async function POST(req: NextRequest) {
   const debug: string[] = [];
   try {
-    const { boardUrl, childId, grade, className } = await req.json();
-    if (!boardUrl) return NextResponse.json({ error: 'boardUrl이 필요합니다.' }, { status: 400 });
+    const { boardUrl, postUrl: directPostUrl, childId, grade, className } = await req.json();
+    if (!boardUrl && !directPostUrl) return NextResponse.json({ error: 'URL이 필요합니다.' }, { status: 400 });
     if (!process.env.ANTHROPIC_API_KEY) return NextResponse.json({ error: 'ANTHROPIC_API_KEY가 설정되지 않았습니다.' }, { status: 500 });
+
+    // 직접 게시물 URL이 있으면 바로 그 페이지 분석
+    if (directPostUrl?.trim()) {
+      debug.push(`[직접URL] ${directPostUrl}`);
+      const html = await fetchHtml(directPostUrl);
+      const $d = load(html);
+      const imageUrls = extractImageUrls($d, directPostUrl);
+      const tableText = extractTableText($d);
+      const bodyText = extractBodyText($d);
+      debug.push(`[직접URL] 이미지 ${imageUrls.length}개 / 표 ${tableText.length}자`);
+      debug.push(`[직접URL] 이미지: ${imageUrls.slice(0, 3).join(' | ') || '없음'}`);
+      const client0 = new Anthropic();
+      let s: WeeklySchedule;
+      if (imageUrls.length > 0) {
+        const r = await tryVisionAnalysis(client0, imageUrls, childId, grade, className);
+        s = r ? { ...r, sourceUrl: directPostUrl, imageUrls } : await textAnalysis(client0, tableText || bodyText, childId, grade, className);
+        if (!r) { s.sourceUrl = directPostUrl; s.imageUrls = imageUrls; }
+      } else {
+        s = await textAnalysis(client0, tableText || bodyText, childId, grade, className);
+        s.sourceUrl = directPostUrl;
+      }
+      return NextResponse.json({ ...s, debug });
+    }
 
     // 1. 게시판 목록 페이지 가져오기 (AJAX JSON 먼저 시도)
     debug.push(`[1] 게시판 fetch: ${boardUrl}`);

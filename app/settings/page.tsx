@@ -5,7 +5,7 @@ import Link from 'next/link';
 import { Child, CHILD_COLORS } from '@/lib/types';
 import { getChildren, saveChildren } from '@/lib/storage';
 
-const EMPTY_FORM = { name: '', school: '', grade: 1, className: '', boardUrl: '' };
+const EMPTY_FORM = { name: '', school: '', grade: 1, className: '', boardUrl: '', postUrl: '' };
 
 export default function SettingsPage() {
   const [children, setChildren] = useState<Child[]>([]);
@@ -18,7 +18,7 @@ export default function SettingsPage() {
   function openAdd() { setEditing(null); setForm(EMPTY_FORM); setShowForm(true); }
   function openEdit(child: Child) {
     setEditing(child);
-    setForm({ name: child.name, school: child.school, grade: child.grade, className: child.className, boardUrl: child.boardUrl });
+    setForm({ name: child.name, school: child.school, grade: child.grade, className: child.className, boardUrl: child.boardUrl, postUrl: child.postUrl ?? '' });
     setShowForm(true);
   }
 
@@ -28,7 +28,7 @@ export default function SettingsPage() {
     if (editing) {
       updated = children.map(c => c.id === editing.id ? { ...editing, ...form } : c);
     } else {
-      updated = [...children, { id: Date.now().toString(), color: String(children.length % CHILD_COLORS.length), ...form }];
+      updated = [...children, { id: Date.now().toString(), color: String(children.length % CHILD_COLORS.length), ...form, postUrl: form.postUrl || undefined }];
     }
     saveChildren(updated);
     setChildren(updated);
@@ -136,8 +136,21 @@ export default function SettingsPage() {
               <div>
                 <label className="text-sm text-gray-600 font-medium block mb-1">주간학습안내 게시판 URL *</label>
                 <input type="url" value={form.boardUrl} onChange={e => setForm(f => ({ ...f, boardUrl: e.target.value }))}
-                  placeholder="https://school.kr/board/..." className="w-full border border-gray-300 rounded-xl px-3 py-2.5 text-sm outline-none focus:border-amber-400" />
-                <p className="text-xs text-gray-400 mt-1">학교 홈페이지 → 학급 → 주간학습안내 게시판 주소</p>
+                  placeholder="https://school.kr/board/list.do?boardID=..." className="w-full border border-gray-300 rounded-xl px-3 py-2.5 text-sm outline-none focus:border-amber-400" />
+                <p className="text-xs text-gray-400 mt-1">학교 홈페이지 → 학급 → 주간학습안내 게시판 목록 주소</p>
+              </div>
+
+              <div>
+                <label className="text-sm text-gray-600 font-medium block mb-1">
+                  이번 주 게시물 URL
+                  <span className="ml-2 text-xs bg-amber-100 text-amber-700 px-2 py-0.5 rounded-full font-bold">권장</span>
+                </label>
+                <input type="url" value={form.postUrl ?? ''} onChange={e => setForm(f => ({ ...f, postUrl: e.target.value }))}
+                  placeholder="https://school.kr/board/view.do?boardID=...&boardSeq=..." className="w-full border border-amber-300 rounded-xl px-3 py-2.5 text-sm outline-none focus:border-amber-500 bg-amber-50" />
+                <p className="text-xs text-gray-400 mt-1">
+                  학교 홈페이지에서 이번 주 주간학습안내 게시물을 열고 주소창 URL을 복사해서 붙여넣으세요.<br/>
+                  입력하면 시간표 이미지를 Claude가 직접 읽어 분석합니다. 매주 새 게시물로 업데이트해 주세요.
+                </p>
               </div>
 
               <div className="flex gap-2 pt-2">
