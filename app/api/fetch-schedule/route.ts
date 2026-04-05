@@ -23,6 +23,13 @@ export async function POST(req: NextRequest) {
     debug.push(`[1] 완료 (${boardHtml.length}자)`);
     const $ = load(boardHtml);
 
+    // 2. 페이지 내 링크 샘플 (디버그)
+    const sampleLinks = $('a[href]').toArray()
+      .map(el => $(el).attr('href') ?? '')
+      .filter(h => h.length > 5 && !h.startsWith('#') && !h.startsWith('javascript'))
+      .slice(0, 15);
+    debug.push(`[2] 페이지 링크 샘플: ${sampleLinks.join(' | ')}`);
+
     // 2. 이번 주 주간학습안내 게시물 링크 찾기
     const postUrl = findThisWeekPostUrl($, boardUrl) ?? findLatestPostUrl($, boardUrl);
     debug.push(`[2] 게시물 URL: ${postUrl ?? '(탐지 실패 — 게시판 페이지로 진행)'}`);
@@ -94,11 +101,11 @@ async function fetchHtml(url: string): Promise<string> {
 // 게시물 view URL인지 판별 (list.do / menu 링크 등 제외)
 function isPostViewUrl(href: string): boolean {
   if (isJsHref(href)) return false;
-  // 목록 페이지 제외
-  if (/list\.do|menuCd=|m=\d|\/menu\//i.test(href)) return false;
-  // view 패턴 우선
-  if (/view\.do|boardSeq=|nttId=|articleId=|seq=|no=\d|idx=\d|bbsIdx=/i.test(href)) return true;
-  return true; // 나머지는 일단 허용
+  // 명확한 목록/메뉴 페이지 제외
+  if (/list\.do|menuCd=|\/menu\//i.test(href)) return false;
+  // view 패턴 → 게시물
+  if (/view\.do|boardSeq=|nttId=|articleId=|bbsIdx=/i.test(href)) return true;
+  return false; // 명확하지 않으면 제외
 }
 
 // ────────────────────────────────────────────
