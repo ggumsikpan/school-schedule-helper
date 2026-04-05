@@ -91,6 +91,16 @@ async function fetchHtml(url: string): Promise<string> {
   try { return new TextDecoder('euc-kr').decode(buffer); } catch { return utf8; }
 }
 
+// 게시물 view URL인지 판별 (list.do / menu 링크 등 제외)
+function isPostViewUrl(href: string): boolean {
+  if (isJsHref(href)) return false;
+  // 목록 페이지 제외
+  if (/list\.do|menuCd=|m=\d|\/menu\//i.test(href)) return false;
+  // view 패턴 우선
+  if (/view\.do|boardSeq=|nttId=|articleId=|seq=|no=\d|idx=\d|bbsIdx=/i.test(href)) return true;
+  return true; // 나머지는 일단 허용
+}
+
 // ────────────────────────────────────────────
 // 이번 주 게시물 링크 찾기
 // ────────────────────────────────────────────
@@ -108,13 +118,12 @@ function findThisWeekPostUrl($: CheerioRoot, base: string): string | null {
 
   for (const pat of patterns) {
     const found = $('a').filter((_, el) => pat.test($(el).text())).first();
-    const href = found.attr('href');
-    if (href && !isJsHref(href)) return resolveUrl(href, base);
-
-    // onclick 패턴
+    if (!found.length) continue;
+    const href = found.attr('href') ?? '';
+    if (isPostViewUrl(href)) return resolveUrl(href, base);
     const onclick = found.attr('onclick') ?? '';
     const loc = onclick.match(/location\.href\s*=\s*['"]([^'"]+)['"]/);
-    if (loc) return resolveUrl(loc[1], base);
+    if (loc && isPostViewUrl(loc[1])) return resolveUrl(loc[1], base);
   }
   return null;
 }
@@ -123,36 +132,34 @@ function findThisWeekPostUrl($: CheerioRoot, base: string): string | null {
 // 최신 게시물 링크 찾기 (이번 주 실패 시)
 // ────────────────────────────────────────────
 function findLatestPostUrl($: CheerioRoot, base: string): string | null {
-  const selectors = [
-    'table tbody tr:first-child td.title a',
-    'table tbody tr:first-child td.subject a',
-    'table tbody tr:nth-child(2) td.title a',  // 첫 행이 공지일 경우
-    'table tbody tr:first-child td a',
-    '.board_list tbody tr:first-child a',
-    '.bbs_list tbody tr:first-child a',
-    'ul.board-list li:first-child a',
-  ];
-
-  for (const sel of selectors) {
-    const el = $(sel).first();
-    const href = el.attr('href');
-    if (href && !isJsHref(href)) return resolveUrl(href, base);
-
-    const onclick = el.attr('onclick') ?? '';
-    const loc = onclick.match(/location\.href\s*=\s*['"]([^'"]+)['"]/);
-    if (loc) return resolveUrl(loc[1], base);
-    const win = onclick.match(/window\.open\s*\(\s*['"]([^'"]+)['"]/);
-    if (win) return resolveUrl(win[1], base);
+  // view.do / boardSeq 패턴을 가진 링크 우선 탐색 (인천교육청 등 한국 교육 CMS)
+  const allLinks = $('a[href]').toArray();
+  for (const el of allLinks) {
+    const href = $(el).attr('href') ?? '';
+    if (isPostViewUrl(href) && /view\.do|boardSeq=|nttId=|articleId=/i.test(href)) {
+      return resolveUrl(href, base);
+    }
   }
 
-  // 공지 제외하고 첫 번째 일반 게시물
-  const rows = $('table tbody tr').toArray();
-  for (const row of rows) {
-    const r = $(row);
-    if (r.find('.notice, .noti, [class*="notice"]').length > 0) continue;
-    const a = r.find('a').first();
-    const href = a.attr('href');
-    if (href && !isJsHref(href)) return resolveUrl(href, base);
+  // 테이블 기반 게시판 목록 탐색
+  const selectors = [
+    'table tbody tr td.title a',
+    'table tbody tr td.subject a',
+    'table tbody tr td a',
+    '.board_list tbody tr a',
+    '.bbs_list tbody tr a',
+    'ul.board-list li a',
+  ];
+  for (const sel of selectors) {
+    for (const el of $(sel).toArray()) {
+      const href = $(el).attr('href') ?? '';
+      if (isPostViewUrl(href)) return resolveUrl(href, base);
+      const onclick = $(el).attr('onclick') ?? '';
+      const loc = onclick.match(/location\.href\s*=\s*['"]([^'"]+)['"]/);
+      if (loc && isPostViewUrl(loc[1])) return resolveUrl(loc[1], base);
+      const win = onclick.match(/window\.open\s*\(\s*['"]([^'"]+)['"]/);
+      if (win && isPostViewUrl(win[1])) return resolveUrl(win[1], base);
+    }
   }
   return null;
 }
@@ -160,7 +167,7 @@ function findLatestPostUrl($: CheerioRoot, base: string): string | null {
 // ────────────────────────────────────────────
 // 이미지 URL 추출
 // ────────────────────────────────────────────
-const DECO_PATTERN = /logo|banner|bg_|background|icon|button|btn_|arrow|bullet|pixel|spacer|blank|common|layout/i;
+const DECO_PATTERN = /logo|banner|bg_|background|icon|ico|button|btn_|arrow|bullet|pixel|spacer|blank|common|layout|visual|template|skin|design|nav|menu/i;
 
 function extractImageUrls($: CheerioRoot, base: string): string[] {
   // 노이즈 영역 제거
