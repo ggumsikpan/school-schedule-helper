@@ -403,34 +403,43 @@ function resolveUrl(href: string, base: string): string {
 async function tryAjaxBoardList(boardUrl: string, debug: string[]): Promise<string | null> {
   try {
     const u = new URL(boardUrl);
-    const boardID = u.searchParams.get('boardID');
+    // regex로 직접 추출 (URL 파싱 edge case 방지)
+    const boardIDMatch = boardUrl.match(/boardID=(\d+)/);
+    const mMatch = boardUrl.match(/[?&]m=([^&&#]+)/);
+    const sMatch = boardUrl.match(/[?&]s=([^&&#]+)/);
+    const boardID = boardIDMatch?.[1] ?? '';
+    const mParam = mMatch?.[1] ?? '';
+    const sParam = sMatch?.[1] ?? '';
+    debug.push(`[ajax] 파라미터: boardID=${boardID} m=${mParam} s=${sParam}`);
     if (!boardID) return null;
 
-    // icees.kr / ice.go.kr 계열 CMS: JSON API 시도
-    const base = `${u.origin}${u.pathname.replace('list.do', '')}`;
-    const jsonUrl = `${base}list.do?boardID=${boardID}&s=${u.searchParams.get('s') ?? ''}&pageIndex=1`;
+    // icees.kr / ice.go.kr 계열 CMS: AJAX JSON 요청
+    const jsonUrl = `${u.origin}/boardCnts/list.do?boardID=${boardID}&s=${sParam}&m=${mParam}&pageIndex=1`;
+    debug.push(`[ajax] 요청 URL: ${jsonUrl}`);
     const res = await fetch(jsonUrl, {
       headers: {
-        'User-Agent': 'Mozilla/5.0',
-        'Accept': 'application/json, text/javascript, */*',
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)',
+        'Accept': 'application/json, text/javascript, */*; q=0.01',
         'X-Requested-With': 'XMLHttpRequest',
         'Referer': boardUrl,
       },
       signal: AbortSignal.timeout(10000),
     });
     const text = await res.text();
-    debug.push(`[ajax] 응답 타입: ${res.headers.get('content-type')} (${text.length}자)`);
-    debug.push(`[ajax] 응답 앞부분: ${text.slice(0, 200)}`);
+    debug.push(`[ajax] 응답: ${res.status} ${res.headers.get('content-type')} (${text.length}자)`);
+    debug.push(`[ajax] 응답 앞부분: ${text.slice(0, 300)}`);
 
     // JSON 응답이면 boardSeq 추출
     if (text.trim().startsWith('{') || text.trim().startsWith('[')) {
       const json = JSON.parse(text);
-      const items = json?.resultList ?? json?.list ?? json?.data ?? (Array.isArray(json) ? json : null);
+      const items = json?.resultList ?? json?.list ?? json?.data ?? json?.boardList ?? (Array.isArray(json) ? json : null);
+      debug.push(`[ajax] items 수: ${items?.length ?? 0}`);
       if (items?.length > 0) {
-        const seq = items[0]?.boardSeq ?? items[0]?.nttId ?? items[0]?.seq;
+        debug.push(`[ajax] 첫 item: ${JSON.stringify(items[0]).slice(0, 200)}`);
+        const seq = items[0]?.boardSeq ?? items[0]?.nttId ?? items[0]?.seq ?? items[0]?.boardNo;
         if (seq) {
-          const viewUrl = `${u.origin}/boardCnts/view.do?boardID=${boardID}&boardSeq=${seq}&m=${u.searchParams.get('m') ?? ''}&s=${u.searchParams.get('s') ?? ''}`;
-          debug.push(`[ajax] boardSeq ${seq} 발견 → ${viewUrl}`);
+          const viewUrl = `${u.origin}/boardCnts/view.do?boardID=${boardID}&boardSeq=${seq}&m=${mParam}&s=${sParam}`;
+          debug.push(`[ajax] 최종 view URL: ${viewUrl}`);
           return viewUrl;
         }
       }
