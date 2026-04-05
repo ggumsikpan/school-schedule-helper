@@ -30,7 +30,7 @@ export function getSchedules(): WeeklySchedule[] {
       days: Object.fromEntries(
         Object.entries(s.days).map(([day, d]) => [
           day,
-          { subjects: [], items: [], notes: '', hasPE: false, ...d },
+          { ...{ subjects: [], items: [], notes: '', hasPE: false }, ...d },
         ])
       ) as WeeklySchedule['days'],
     }));
