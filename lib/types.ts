@@ -5,15 +5,14 @@ export interface Child {
   grade: number;
   className: string;
   boardUrl: string;
-  postUrl?: string;  // 최신 게시물 직접 URL (선택 — 자동 탐지 실패 시 사용)
-  color: string; // UI color theme per child
+  color: string;
 }
 
 export interface DaySchedule {
   hasPE: boolean;
-  subjects: string[];   // ['국어', '수학', '체육', ...] 교시 순서대로
-  items: string[];      // 준비물
-  notes: string;        // 특이사항
+  subjects: string[];
+  items: string[];
+  notes: string;
 }
 
 export type DayKey = '월' | '화' | '수' | '목' | '금';
@@ -23,7 +22,8 @@ export interface WeeklySchedule {
   week: string;
   fetchedAt: string;
   days: Record<DayKey, DaySchedule>;
-  imageUrls?: string[];   // 주간학습안내 이미지 URL
+  sourceUrl?: string;   // 원본 게시물 URL (바로가기용)
+  imageUrls?: string[]; // 원본 이미지 URL 목록
   error?: string;
 }
 

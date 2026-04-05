@@ -4,35 +4,18 @@ import { useState, useEffect, useCallback } from 'react';
 import Link from 'next/link';
 import { Child, WeeklySchedule, DayKey, DAYS } from '@/lib/types';
 import { getChildren, getScheduleForChild, saveSchedule } from '@/lib/storage';
-import { scrapeSchedule } from '@/lib/scraper';
-import { parseSchedule } from '@/lib/parser';
 import ChildCard from '@/components/ChildCard';
 
 const DAY_LABEL: Record<DayKey, string> = { 월: '월', 화: '화', 수: '수', 목: '목', 금: '금' };
 const DAY_NUM_MAP: Record<number, DayKey> = { 1: '월', 2: '화', 3: '수', 4: '목', 5: '금' };
 
-/** 실제 오늘 요일 (null = 주말) */
-function getRealTodayKey(): DayKey | null {
-  return DAY_NUM_MAP[new Date().getDay()] ?? null;
-}
-
-/** 실제 내일 요일 (null = 주말 or 금요일 다음) */
+function getRealTodayKey(): DayKey | null { return DAY_NUM_MAP[new Date().getDay()] ?? null; }
 function getRealTomorrowKey(): DayKey | null {
-  const tomorrow = new Date();
-  tomorrow.setDate(tomorrow.getDate() + 1);
-  return DAY_NUM_MAP[tomorrow.getDay()] ?? null;
+  const d = new Date(); d.setDate(d.getDate() + 1);
+  return DAY_NUM_MAP[d.getDay()] ?? null;
 }
-
-/** 대시보드 기본 선택 요일: 평일이면 오늘, 주말이면 월요일 */
-function getDefaultDay(): DayKey {
-  return getRealTodayKey() ?? '월';
-}
-
-/** 주말 여부 */
-function isWeekend(): boolean {
-  const d = new Date().getDay();
-  return d === 0 || d === 6;
-}
+function getDefaultDay(): DayKey { return getRealTodayKey() ?? '월'; }
+function isWeekend(): boolean { const d = new Date().getDay(); return d === 0 || d === 6; }
 
 export default function DashboardPage() {
   const [children, setChildren] = useState<Child[]>([]);
@@ -51,11 +34,20 @@ export default function DashboardPage() {
   const refreshChild = useCallback(async (child: Child) => {
     setLoading(prev => ({ ...prev, [child.id]: true }));
     try {
-      // 브라우저에서 직접 스크래핑 + 파싱 (서버 불필요)
-      const scrapeResult = await scrapeSchedule(child.boardUrl, child.postUrl);
-      const schedule = parseSchedule(scrapeResult, child.id);
-      saveSchedule(schedule);
-      setSchedules(prev => ({ ...prev, [child.id]: schedule }));
+      const res = await fetch('/api/fetch-schedule', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          boardUrl: child.boardUrl,
+          childId: child.id,
+          grade: child.grade,
+          className: child.className,
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error ?? '서버 오류');
+      saveSchedule(data);
+      setSchedules(prev => ({ ...prev, [child.id]: data }));
     } catch (err) {
       const errorSchedule: WeeklySchedule = {
         childId: child.id,
@@ -75,12 +67,9 @@ export default function DashboardPage() {
     children.forEach(c => refreshChild(c));
   }, [children, refreshChild]);
 
-  const todayKey = getRealTodayKey();       // null이면 주말
-  const tomorrowKey = getRealTomorrowKey(); // null이면 주말/금요일
-
+  const todayKey = getRealTodayKey();
+  const tomorrowKey = getRealTomorrowKey();
   const weekend = isWeekend();
-
-  // 선택된 요일에서 체육 있는 아이 수
   const peCount = children.filter(c => schedules[c.id]?.days[selectedDay]?.hasPE).length;
 
   if (children.length === 0) {
@@ -91,10 +80,7 @@ export default function DashboardPage() {
         <p className="text-amber-600 mb-6 text-sm leading-relaxed">
           아이들 정보를 등록하면<br />매일 체육복과 준비물을 한눈에 볼 수 있어요!
         </p>
-        <Link
-          href="/settings"
-          className="bg-amber-500 text-white px-6 py-3 rounded-full font-bold text-base shadow-md active:scale-95 transition-transform"
-        >
+        <Link href="/settings" className="bg-amber-500 text-white px-6 py-3 rounded-full font-bold text-base shadow-md active:scale-95 transition-transform">
           아이 등록하기
         </Link>
       </div>
@@ -103,7 +89,6 @@ export default function DashboardPage() {
 
   return (
     <div className="min-h-screen bg-amber-50">
-      {/* 헤더 */}
       <header className="bg-white shadow-sm sticky top-0 z-10">
         <div className="max-w-lg mx-auto px-4 py-3 flex items-center justify-between">
           <div>
@@ -125,17 +110,14 @@ export default function DashboardPage() {
             >
               전체 새로고침
             </button>
-            <Link
-              href="/settings"
-              className="text-sm px-3 py-1.5 bg-gray-100 text-gray-600 rounded-full font-medium active:scale-95 transition-transform"
-            >
+            <Link href="/settings" className="text-sm px-3 py-1.5 bg-gray-100 text-gray-600 rounded-full font-medium active:scale-95 transition-transform">
               설정
             </Link>
           </div>
         </div>
       </header>
 
-      {/* 요일 선택 탭 */}
+      {/* 요일 탭 */}
       <div className="bg-white border-b border-gray-100">
         <div className="max-w-lg mx-auto px-4 flex gap-1 overflow-x-auto py-2">
           {DAYS.map(day => {
@@ -147,9 +129,7 @@ export default function DashboardPage() {
                 key={day}
                 onClick={() => setSelectedDay(day)}
                 className={`flex-shrink-0 relative px-3 py-2 rounded-full text-sm font-medium transition-colors ${
-                  selectedDay === day
-                    ? 'bg-amber-500 text-white'
-                    : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+                  selectedDay === day ? 'bg-amber-500 text-white' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
                 }`}
               >
                 {DAY_LABEL[day]}
